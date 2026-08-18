@@ -1,743 +1,4 @@
-local FIND_DROP_RUNTIME = {} 
- 
-local RESULTS_PER_PAGE = 12 
- 
-local function escapeDialogText(text) 
-    text = tostring(text or "") 
-    text = text:gsub("|", "") 
-    text = text:gsub("\n", " ") 
-    text = text:gsub("\r", " ") 
-    return text 
-end 
- 
-local function formatNumber(num) 
-    local value = tostring(tonumber(num) or 0) 
-    local formatted = value:reverse():gsub("(%d%d%d)", "%1,"):reverse() 
-    return formatted:gsub("^,", "") 
-end 
- 
-local function getRuntime(player) 
-    local userID = player:getUserID() 
- 
-    if not FIND_DROP_RUNTIME[userID] then 
-        FIND_DROP_RUNTIME[userID] = { 
-            page = 0, 
-            query = "", 
-            selectedWorld = "", 
-            itemID = 0 
-        } 
-    end 
- 
-    return FIND_DROP_RUNTIME[userID] 
-end 
- 
-local function getWorldDropInfo() 
-    local worlds = getWorlds() 
- 
-    local results = {} 
-    local totalEntries = 0 
-    local totalAmount = 0 
-    local worldsWithDrops = 0 
- 
-    for _, world in ipairs(worlds or {}) do 
-        if world then 
-            local worldName = 
-                tostring(world:getName() or "") 
- 
-            local drops = 
-                world:getDroppedItems() 
- 
-            local entryCount = 0 
-            local amount = 0 
- 
-            for _, drop in ipairs(drops or {}) do 
-                if drop then 
-                    local count = 
-                        tonumber(drop:getItemCount()) or 0 
- 
-                    if count > 0 then 
-                        entryCount = entryCount + 1 
-                        amount = amount + count 
-                    end 
-                end 
-            end 
- 
-            if entryCount > 0 then 
-                worldsWithDrops = worldsWithDrops + 1 
-            end 
- 
-            totalEntries = 
-                totalEntries + entryCount 
- 
-            totalAmount = 
-                totalAmount + amount 
- 
-            table.insert( 
-                results, 
-                { 
-                    name = worldName, 
-                    entries = entryCount, 
-                    amount = amount 
-                } 
-            ) 
-        end 
-    end 
- 
-    table.sort( 
-        results, 
-        function(a, b) 
-            return string.lower(a.name) < 
-                string.lower(b.name) 
-        end 
-    ) 
- 
-    return results, worldsWithDrops, totalEntries, totalAmount 
-end 
- 
-local function openFindDropMain(player) 
-    local worlds, 
-        worldsWithDrops, 
-        totalEntries, 
-        totalAmount = 
-        getWorldDropInfo() 
- 
-    local loadedWorlds = 
-        #worlds 
- 
-    local layout = 
-        "set_default_color|`o\n" .. 
-        "add_label_with_icon|big|`wFind Drop|left|6016|\n" .. 
-        "add_smalltext|`7Scan dropped items across loaded worlds.|left|\n" .. 
-        "add_spacer|small|\n" 
- 
-    layout = 
-        layout .. 
-        "add_button_with_icon|finddrop_scan|`2Scan Worlds|staticBlueFrame|6016|\n" 
- 
-    layout = 
-        layout .. 
-        "add_button_with_icon|finddrop_find|`9Find Item|staticBlueFrame|1482|\n" 
- 
-    layout = 
-        layout .. 
-        "add_button_with_icon|finddrop_drop|`wDropped Items|staticBlueFrame|6016|\n" 
- 
-    layout = 
-        layout .. 
-        "add_spacer|small|\n" 
- 
-    layout = 
-        layout .. 
-        "add_textbox|`wLoaded Worlds: `2" .. 
-        formatNumber(loadedWorlds) .. 
-        "`o|left|\n" 
- 
-    layout = 
-        layout .. 
-        "add_textbox|`wWorlds With Drops: `2" .. 
-        formatNumber(worldsWithDrops) .. 
-        "`o|left|\n" 
- 
-    layout = 
-        layout .. 
-        "add_textbox|`wDrop Entries: `2" .. 
-        formatNumber(totalEntries) .. 
-        "`o|left|\n" 
- 
-    layout = 
-        layout .. 
-        "add_textbox|`wTotal Dropped Items: `2" .. 
-        formatNumber(totalAmount) .. 
-        "`o|left|\n" 
- 
-    layout = 
-        layout .. 
-        "add_spacer|small|\n" .. 
-        "add_label_with_icon|medium|`9Loaded Worlds|left|6016|\n" .. 
-        "add_spacer|tiny|\n" 
- 
-    if #worlds == 0 then 
-        layout = 
-            layout .. 
-            "add_textbox|`4No worlds are currently loaded.|left|\n" 
-    else 
-        for _, world in ipairs(worlds) do 
-            local statusColor = "`4" 
- 
-            if world.entries > 0 then 
-                statusColor = "`2" 
-            end 
- 
-            layout = 
-                layout .. 
-                "add_button|finddrop_world_" .. 
-                escapeDialogText(world.name) .. 
-                "|" .. 
-                statusColor .. 
-                world.name .. 
-                " `o• `2" .. 
-                formatNumber(world.entries) .. 
-                " drops `o• `2" .. 
-                formatNumber(world.amount) .. 
-                " items|noflags|\n" 
-        end 
-    end 
- 
-    layout = 
-        layout .. 
-        "add_spacer|small|\n" .. 
-        "add_button|finddrop_refresh_main|`2Refresh|noflags|\n" .. 
-        "add_button|finddrop_close|`4Close|noflags|\n" .. 
-        "end_dialog|finddrop_main|Close|" 
- 
-    player:onDialogRequest(layout) 
-end 
- 
-local function showFindItemUI(player, query, page) 
-    query = query or "" 
-    page = tonumber(page) or 0 
- 
-    local runtime = getRuntime(player) 
- 
-    runtime.query = query 
-    runtime.page = page 
- 
-    local layout = 
-        "set_default_color|`o\n" .. 
-        "add_label_with_icon|big|`wFind Drop Item|left|1482|\n" .. 
-        "add_smalltext|`7Select an item to find its dropped locations.|left|\n" .. 
-        "add_spacer|small|\n" 
- 
-    layout = 
-        layout .. 
-        "add_text_input|search_query|Search Item:|" .. 
-        escapeDialogText(query) .. 
-        "|20|\n" 
- 
-    layout = 
-        layout .. 
-        "add_button|search_finddrop|`2Search|noflags|\n" .. 
-        "add_spacer|small|\n" 
- 
-    local results = {} 
- 
-    if query ~= "" then 
-        local searchLower = 
-            query:lower() 
- 
-        local itemsCount = 
-            getItemsCount() 
- 
-        for itemID = 1, itemsCount do 
-            local item = 
-                getItem(itemID) 
- 
-            if item then 
-                local itemName = 
-                    tostring(item:getName() or "") 
- 
-                if itemName:lower():find( 
-                    searchLower, 
-                    1, 
-                    true 
-                ) then 
-                    table.insert( 
-                        results, 
-                        { 
-                            id = itemID, 
-                            name = itemName 
-                        } 
-                    ) 
-                end 
-            end 
-        end 
-    end 
- 
-    local totalPages = 
-        math.max( 
-            1, 
-            math.ceil( 
-                #results / RESULTS_PER_PAGE 
-            ) 
-        ) 
- 
-    if page >= totalPages then 
-        page = totalPages - 1 
-    end 
- 
-    if page < 0 then 
-        page = 0 
-    end 
- 
-    runtime.page = page 
- 
-    local startIndex = 
-        page * RESULTS_PER_PAGE + 1 
- 
-    local endIndex = 
-        math.min( 
-            startIndex + RESULTS_PER_PAGE - 1, 
-            #results 
-        ) 
- 
-    if #results == 0 then 
-        if query == "" then 
-            layout = 
-                layout .. 
-                "add_smalltext|`7Enter an item name to search.|left|\n" 
-        else 
-            layout = 
-                layout .. 
-                "add_smalltext|`4No items found.|left|\n" 
-        end 
-    else 
-        layout = 
-            layout .. 
-            string.format( 
-                "add_smalltext|`2%d results found.|left|\n", 
-                #results 
-            ) 
- 
-        layout = 
-            layout .. 
-            "add_spacer|small|\n" 
- 
-        for i = startIndex, endIndex do 
-            local item = 
-                results[i] 
- 
-            if item then 
-                layout = 
-                    layout .. 
-                    string.format( 
-                        "add_button_with_icon|finddrop_select_%d|`w%s|staticBlueFrame|%d|\n", 
-                        item.id, 
-                        escapeDialogText(item.name), 
-                        item.id 
-                    ) 
-            end 
-        end 
- 
-        if totalPages > 1 then 
-            layout = 
-                layout .. 
-                "add_spacer|small|\n" 
- 
-            if page > 0 then 
-                layout = 
-                    layout .. 
-                    "add_button|finddrop_prev|`4Previous|noflags|\n" 
-            end 
- 
-            if page < totalPages - 1 then 
-                layout = 
-                    layout .. 
-                    "add_button|finddrop_next|`2Next|noflags|\n" 
-            end 
- 
-            layout = 
-                layout .. 
-                string.format( 
-                    "add_smalltext|Page %d/%d|left|\n", 
-                    page + 1, 
-                    totalPages 
-                ) 
-        end 
-    end 
- 
-    layout = 
-        layout .. 
-        "add_spacer|small|\n" .. 
-        "add_button|finddrop_back_main|`4Back|noflags|\n" .. 
-        "end_dialog|finddrop_finder|Close|" 
- 
-    player:onDialogRequest(layout) 
-end 
- 
-local function openFindDropResult(player, itemID) 
-    itemID = 
-        tonumber(itemID) or 0 
- 
-    local item = 
-        getItem(itemID) 
- 
-    if not item then 
-        player:onConsoleMessage( 
-            "`4Invalid item." 
-        ) 
- 
-        return 
-    end 
- 
-    local runtime = 
-        getRuntime(player) 
- 
-    runtime.itemID = 
-        itemID 
- 
-    local itemName = 
-        escapeDialogText( 
-            item:getName() or 
-            "Unknown Item" 
-        ) 
- 
-    local worlds = 
-        getWorlds() 
- 
-    local totalEntries = 0 
-    local totalAmount = 0 
-    local worldsWithDrops = 0 
- 
-    local results = {} 
- 
-    for _, world in ipairs(worlds or {}) do 
-        if world then 
-            local worldName = 
-                tostring(world:getName() or "") 
- 
-            local drops = 
-                world:getDroppedItems() 
- 
-            local worldDrops = {} 
- 
-            for _, drop in ipairs(drops or {}) do 
-                if drop then 
-                    local dropItemID = 
-                        tonumber(drop:getItemID()) or 0 
- 
-                    if dropItemID == itemID then 
-                        local amount = 
-                            tonumber(drop:getItemCount()) or 0 
- 
-                        if amount > 0 then 
-                            table.insert( 
-                                worldDrops, 
-                                { 
-                                    amount = amount, 
-                                    x = math.floor( 
-                                        (drop:getPosX() or 0) / 32 
-                                    ), 
-                                    y = math.floor( 
-                                        (drop:getPosY() or 0) / 32 
-                                    ) 
-                                } 
-                            ) 
- 
-                            totalEntries = 
-                                totalEntries + 1 
- 
-                            totalAmount = 
-                                totalAmount + amount 
-                        end 
-                    end 
-                end 
-            end 
- 
-            if #worldDrops > 0 then 
-                worldsWithDrops = 
-                    worldsWithDrops + 1 
- 
-                table.insert( 
-                    results, 
-                    { 
-                        name = worldName, 
-                        drops = worldDrops 
-                    } 
-                ) 
-            end 
-        end 
-    end 
- 
-    table.sort( 
-        results, 
-        function(a, b) 
-            return string.lower(a.name) < 
-                string.lower(b.name) 
-        end 
-    ) 
- 
-    local layout = 
-        "set_default_color|`o\n" .. 
-        "add_label_with_icon|big|`wFind Drop Result|left|" .. 
-        tostring(itemID) .. 
-        "|\n" .. 
-        "add_spacer|small|\n" .. 
-        "add_textbox|`wItem: `2" .. 
-        itemName .. 
-        "`o (`7" .. 
-        tostring(itemID) .. 
-        "`o)|left|\n" .. 
-        "add_textbox|`wWorlds With Drops: `2" .. 
-        formatNumber(worldsWithDrops) .. 
-        "`o|left|\n" .. 
-        "add_textbox|`wDrop Entries: `2" .. 
-        formatNumber(totalEntries) .. 
-        "`o|left|\n" .. 
-        "add_textbox|`wTotal Amount: `2" .. 
-        formatNumber(totalAmount) .. 
-        "`o|left|\n" .. 
-        "add_spacer|small|\n" 
- 
-    if #results == 0 then 
-        layout = 
-            layout .. 
-            "add_textbox|`4This item was not found in any loaded world.|left|\n" 
-    else 
-        for _, worldData in ipairs(results) do 
-            layout = 
-                layout .. 
-                "add_label_with_icon|medium|`9" .. 
-                escapeDialogText(worldData.name) .. 
-                "|left|" .. 
-                tostring(itemID) .. 
-                "|\n" 
- 
-            for _, drop in ipairs(worldData.drops) do 
-                layout = 
-                    layout .. 
-                    "add_textbox|`oDrop: `w" .. 
-                    formatNumber(drop.amount) .. 
-                    "`o at `w(" .. 
-                    tostring(drop.x) .. 
-                    ", " .. 
-                    tostring(drop.y) .. 
-                    ")|left|\n" 
-            end 
- 
-            layout = 
-                layout .. 
-                "add_spacer|tiny|\n" 
-        end 
-    end 
- 
-    layout = 
-        layout .. 
-        "add_spacer|small|\n" .. 
-        "add_button|finddrop_back_finder|`2Find Another Item|noflags|\n" .. 
-        "add_button|finddrop_refresh_result|`2Refresh|noflags|\n" .. 
-        "add_button|finddrop_back_main|`4Back|noflags|\n" .. 
-        "end_dialog|finddrop_result|Close|" 
- 
-    player:onDialogRequest(layout) 
-end 
- 
-onPlayerDialogCallback(function(world, player, data) 
-    if not data then 
-        return false 
-    end 
- 
-    local dialogName = 
-        tostring(data.dialog_name or "") 
- 
-    local button = 
-        tostring(data.buttonClicked or "") 
- 
-    local runtime = 
-        getRuntime(player) 
- 
-    if dialogName == "finddrop_main" then 
- 
-        if button == "finddrop_close" then 
-            FIND_DROP_RUNTIME[player:getUserID()] = nil 
-            return true 
-        end 
- 
-        if button == "finddrop_refresh_main" then 
-            openFindDropMain(player) 
-            return true 
-        end 
- 
-        if button == "finddrop_scan" then 
-            openFindDropMain(player) 
-            return true 
-        end 
- 
-        if button == "finddrop_find" then 
-            runtime.query = "" 
-            runtime.page = 0 
- 
-            showFindItemUI( 
-                player, 
-                "", 
-                0 
-            ) 
- 
-            return true 
-        end 
- 
-        if button == "finddrop_drop" then 
-            openFindDropMain(player) 
-            return true 
-        end 
- 
-        local worldName = 
-            button:match( 
-                "^finddrop_world_(.+)$" 
-            ) 
- 
-        if worldName then 
-            runtime.selectedWorld = 
-                worldName 
- 
-            showFindItemUI( 
-                player, 
-                "", 
-                0 
-            ) 
- 
-            return true 
-        end 
- 
-        return true 
-    end 
- 
-    if dialogName == "finddrop_finder" then 
- 
-        if button == "finddrop_back_main" then 
-            openFindDropMain(player) 
-            return true 
-        end 
- 
-        if button == "search_finddrop" then 
-            local query = 
-                tostring( 
-                    data.search_query or 
-                    runtime.query or 
-                    "" 
-                ) 
- 
-            runtime.query = 
-                query 
- 
-            runtime.page = 
-                0 
- 
-            showFindItemUI( 
-                player, 
-                query, 
-                0 
-            ) 
- 
-            return true 
-        end 
- 
-        if button == "finddrop_prev" then 
-            local page = 
-                tonumber(runtime.page) or 0 
- 
-            showFindItemUI( 
-                player, 
-                runtime.query or "", 
-                page - 1 
-            ) 
- 
-            return true 
-        end 
- 
-        if button == "finddrop_next" then 
-            local page = 
-                tonumber(runtime.page) or 0 
- 
-            showFindItemUI( 
-                player, 
-                runtime.query or "", 
-                page + 1 
-            ) 
- 
-            return true 
-        end 
- 
-        local selectedItem = 
-            button:match( 
-                "^finddrop_select_(%d+)$" 
-            ) 
- 
-        if selectedItem then 
-            local itemID = 
-                tonumber(selectedItem) or 0 
- 
-            runtime.itemID = 
-                itemID 
- 
-            openFindDropResult( 
-                player, 
-                itemID 
-            ) 
- 
-            return true 
-        end 
- 
-        return true 
-    end 
- 
-    if dialogName == "finddrop_result" then 
- 
-        if button == "finddrop_back_main" then 
-            openFindDropMain(player) 
-            return true 
-        end 
- 
-        if button == "finddrop_back_finder" then 
-            showFindItemUI( 
-                player, 
-                runtime.query or "", 
-                runtime.page or 0 
-            ) 
- 
-            return true 
-        end 
- 
-        if button == "finddrop_refresh_result" then 
-            if runtime.itemID and 
-                runtime.itemID > 0 then 
- 
-                openFindDropResult( 
-                    player, 
-                    runtime.itemID 
-                ) 
-            end 
- 
-            return true 
-        end 
- 
-        return true 
-    end 
- 
-    return false 
-end) 
- 
-onPlayerDisconnectCallback(function(player) 
-    if player then 
-        FIND_DROP_RUNTIME[player:getUserID()] = nil 
-    end 
-end) 
- 
-registerLuaCommand{ 
-    command = "finddrop", 
-    roleRequired = 1000, 
-    description = "Find dropped items in loaded worlds", 
-    callback = function(player, args) 
- 
-        if not player:hasRole(1000) then 
-            player:onConsoleMessage( 
-                "`4You don't have permission to use /finddrop." 
-            ) 
- 
-            return true 
-        end 
- 
-        FIND_DROP_RUNTIME[player:getUserID()] = { 
-            page = 0, 
-            query = "", 
-            selectedWorld = "", 
-            itemID = 0 
-        } 
- 
-        openFindDropMain(player) 
- 
-        return true 
-    end 
-}tombol semua kecuali itemnya anjing item yang di smartin sama jan lupa custom break + nih semua fucntion Callbacks
+Callbacks
 All optional, and each may be registered more than once. Handlers run in registration order. An error inside one is logged and swallowed, never fatal.
 
 onPlayerLoginCallback(function(player) end)
@@ -767,6 +28,32 @@ Fires when a player finishes entering a world.
 onPlayerEnterWorldCallback(function(world, player)
     player:onConsoleMessage("You entered `w" .. world:getName())
 end)
+onPlayerSendRaw(function(player, packet) end) → boolean
+live
+Fires just before ANY variant packet is sent to a client, which is the wider version of onPlayerVariantCallback: that one is wired at two specific places, this one sits at the single point every variant passes through. packet is a 1-based array of the variant’s arguments, so packet[1] is always its name ("OnConsoleMessage", "OnDialogRequest", "OnFtueButtonDataSet" and so on) and the rest are whatever it carries. Return true to block the packet, anything else to let it through. Use it to log, filter, validate a custom variant before it goes out, or drop one entirely. To change a packet, block the original and send your own with player:sendVariant.
+
+player
+Who the packet is addressed to.
+packet
+The variant’s arguments, packet[1] being the name. Strings, numbers and floats come through as themselves; a 2 or 3 float vector arrives joined as "x,y" or "x,y,z".
+-- log every dialog, and never let a half-built FTUE packet reach a client
+onPlayerSendRaw(function(player, packet)
+    local name = packet[1]
+
+    if name == "OnDialogRequest" then
+        sendLog(player:getName() .. " <- dialog, " .. #packet .. " args")
+    end
+
+    if name == "OnFtueButtonDataSet" and #packet < 5 then
+        return true   -- blocked: not enough arguments to be valid
+    end
+
+    return false
+end)
+onPlayerSendRaw notes
+live
+Worth knowing before you use it. It only covers variant packets, which is everything named like OnSomething; the binary movement and tile stream does not pass through here. It costs nothing at all until a script registers a handler, and after that every outgoing variant runs your Lua, so keep the handler short. Packets your handler itself sends are passed straight through rather than fed back into it, so calling onConsoleMessage from inside is safe and will not recurse. If your handler throws, the error is logged and the packet is sent anyway, so a broken handler cannot silence the server. Blocking is powerful and sharp: dropping the wrong variant can leave a client stuck on a screen that never arrives, so match on packet[1] and let everything else through.
+
 onPlayerCommandCallback(function(world, player, fullCommand) end) → boolean
 live
 Fires when a player types a /command. Lua gets first refusal, before the built-ins.
@@ -853,6 +140,10 @@ end)
 onTilePunchCallback(function(world, player, tile) end)
 live
 Fires on every swing, including ones that hit nothing. Advisory: the punch happens regardless. This is a far hotter path than onTileBreak, so keep handlers cheap.
+
+onGetTileExtraDataCallback(function(world, tile, gameVersion, refPlayer) end)
+live
+Fires as a block's extra data is prepared for one player. Reports only, it cannot change what is sent.
 
 onTileWrenchCallback(function(world, player, tile) end)
 live
@@ -1098,6 +389,38 @@ Every player who is online and has finished logging in, as a 1-based array. Peer
 for _, p in ipairs(getServerPlayers()) do
     p:onConsoleMessage("`2Server restarting in 5 minutes.")
 end
+getWorlds() → {World}
+live
+The worlds currently loaded in memory, as a 1-based array of World objects. This is NOT every world on the server: a world is loaded when someone enters or creates it and is dropped again when it unloads, so a world nobody has touched since the last restart is simply absent. That is also the right set for anything reading live state, because dropped items, players and current tile contents only exist for a loaded world. Order follows the load cache, so it is arrival order rather than alphabetical, and it is not stable between calls. Key your results by world:getName(), never by position.
+
+local function findDrops(itemID)
+    local hits = {}
+    for _, w in ipairs(getWorlds()) do
+        for _, d in ipairs(w:getDroppedItems()) do
+            if d:getItemID() == itemID then
+                hits[#hits + 1] = {
+                    world = w:getName(),
+                    x     = math.floor(d:getPosX() / 32),
+                    y     = math.floor(d:getPosY() / 32),
+                    count = d:getItemCount(),
+                }
+            end
+        end
+    end
+    return hits
+end
+
+onPlayerCommandCallback(function(world, player, cmd)
+    local id = cmd:match("^/finddrop%s+(%d+)$")
+    if not id then return false end
+
+    local hits = findDrops(tonumber(id))
+    player:onConsoleMessage("`2" .. #hits .. "`` result(s) in loaded worlds")
+    for _, h in ipairs(hits) do
+        player:onConsoleMessage("`o" .. h.world .. "`` at " .. h.x .. "," .. h.y .. " x" .. h.count)
+    end
+    return true
+end)
 getPlayer(userID) → Player or nil
 extension
 Finds an online player by the number getUserID() returns, so getPlayer(p:getUserID()) round-trips.
@@ -1166,15 +489,43 @@ addSidebarButton(json.encode({
     buttonTemplate = "BaseEventButton", itemIdIcon = 14404,
     order = 50, rcssClass = "daily_challenge", text = "Profit"
 }))
-timer.setTimeout(seconds, fn)
+timer.setTimeout(seconds, fn) → number
 live
-Runs fn once, about `seconds` from now. Accurate to roughly a second, not millisecond-accurate. The delay is clamped to 0 through 3600. Useful for deferring work until after a callback returns.
+Runs fn once, about `seconds` from now. Accurate to roughly a second, not millisecond-accurate. The delay is clamped to 0 through 3600. Useful for deferring work until after a callback returns. Returns a handle you can pass to timer.clearInterval to cancel it before it fires.
 
 onPlayerRegisterCallback(function(world, player)
     timer.setTimeout(10, function()
         if player:isOnline() then showWelcome(player) end
     end)
 end)
+timer.setInterval(seconds, fn) → number
+live
+Runs fn over and over, about every `seconds`, until you stop it. Returns a handle for timer.clearInterval. Keep that handle: without it the callback cannot be stopped short of reloading the scripts. The period is clamped to 1 through 3600 seconds. The floor is 1 because timers are only checked about once a second, so a smaller number would promise a rate the server cannot deliver. If a callback throws, the error is logged and the interval keeps running, and if the server is busy enough to miss several periods you get one call rather than a burst of catch-up calls.
+
+seconds
+How long between runs. Clamped to 1 through 3600.
+fn
+Called with no arguments. Errors inside it are logged and do not stop the interval.
+-- announce a giveaway every 5 minutes, and stop once it has run
+local announcer
+
+local function startGiveaway()
+    local left = 3
+    announcer = timer.setInterval(300, function()
+        left = left - 1
+        for _, p in ipairs(getAllPlayers()) do
+            p:onConsoleMessage("`2Giveaway`` starting soon!")
+        end
+        if left <= 0 then
+            timer.clearInterval(announcer)
+            announcer = nil
+        end
+    end)
+end
+timer.clearInterval(id) → boolean
+live
+Stops a timer by the handle setInterval returned, and returns whether one was actually stopped. It also cancels a setTimeout that has not fired yet, since both live in the same list. Safe to call from inside a timer callback, including on the interval that is currently running and on another timer due in the same moment. Clearing an id twice, or an id that never existed, returns false rather than failing.
+
 getWorldEffects() → {table}
 live
 Every world with effects set, as an array. Each entry is an effect table plus a world field naming it. See world:setEffects for the fields.
@@ -1510,7 +861,7 @@ live
 The tile at those coordinates, or nil when they fall outside the world.
 
 local t = world:getTile(25, 30)
-if t then log(t:getForeground()) end
+if t then log(t:getTileForeground()) end
 world:setTileOnFire(tile, enable) → boolean
 live
 Lights a block or puts it out. Counts toward the world's fire limit exactly as a real fire does.
@@ -1664,6 +1015,10 @@ player:onDialogRequest(
     "add_label|big|`wMy Menu``|left|\n" ..
     "add_button|ok|Confirm|noflags|0|0|\n" ..
     "end_dialog|my_menu|||\n")
+player:onDialogRequestRML(markup)
+live
+Opens a dialog built from the client's RML layout format instead of dialog markup.
+
 player:sendAction(text)
 live
 Sends a raw action packet to this client. Oversized packets are refused and logged.
@@ -1963,6 +1318,55 @@ player:removeMod(modID) → boolean
 live
 Removes a playmod. Returns whether one was found.
 
+player:ban(days, hours, minutes, reason [, by]) → boolean
+live
+Bans the player. The three time parts add up, so ban(0, 1, 30, ...) is 90 minutes and ban(1, 0, 0, ...) is a day. This runs the engine's own ban, so it is indistinguishable from a moderator's: the same server announcement, the same warning notification, the same entry in the player's ban log. The ban is saved with the player and rechecked at login, so it survives a restart and the player is told how long is left when they try to come back. They are disconnected immediately. Returns false when the duration adds up to zero, the reason is empty, or the player is already banned, because the engine never extends or replaces an active punishment. Use player:hasMod(76) to test for one.
+
+days
+Whole days. Negative counts as 0, so it can never shorten the total.
+hours
+Whole hours, added to the days.
+minutes
+Whole minutes, added to the rest. The total is capped at the engine's own maximum of about 730 days.
+reason
+Shown to the player and stored on their record. Required: an empty reason is refused.
+by
+Optional. Who the ban is recorded as coming from, shown in the Punish/View dialog. Defaults to System.
+-- auto-ban a player who trips the same warning too often
+local strikes = {}
+
+onPlayerCommandCallback(function(world, player, cmd)
+    if cmd ~= "/exploit" then return false end
+
+    local id = player:getUserID()
+    strikes[id] = (strikes[id] or 0) + 1
+
+    if strikes[id] >= 3 then
+        if player:ban(0, 6, 0, "automatic: 3 strikes", "`2AutoMod``") then
+            strikes[id] = nil
+        end
+    else
+        player:onConsoleMessage("`4Warning `o(" .. strikes[id] .. "/3)")
+    end
+    return true
+end)
+player:curse(days, hours, minutes, reason [, by]) → boolean
+live
+Curses the player, which marks them and sends them to HELL. Same time arguments and same rules as player:ban, and it likewise runs the engine's own curse so the announcement and the log entry match a moderator's. Unlike a ban it does not disconnect them. Returns false when the duration adds up to zero, the reason is empty, or the player is already cursed. Use player:hasMod(139) to test for one.
+
+days
+Whole days. Negative counts as 0.
+hours
+Whole hours, added to the days.
+minutes
+Whole minutes, added to the rest.
+reason
+Shown to the player and stored on their record. Required.
+by
+Optional. Who the curse is recorded as coming from. Defaults to System.
+if not player:hasMod(139) then
+    player:curse(0, 0, 30, "cursing in chat")
+end
 player:getCheat(name) → boolean
 live
 Whether a cheat is switched on for this player. Returns nil for an unknown name.
@@ -2012,4 +1416,482 @@ Sends a raw action packet. Identical to sendAction: same function, same 8192-byt
 
 player:onBackpackUI()
 live
-Opens the backpack UI for this... (15 KB left)
+Opens the backpack UI for this player.
+
+player:enterWorld(worldName [, notification, bypass]) → boolean
+live
+Moves the player into a world. Names longer than 24 characters are refused. The trailing arguments have no equivalent here and are ignored.
+
+player:checkPassword(password) → boolean
+live
+Compares against the player's stored password.
+
+player:disconnect()
+live
+Disconnects this player. They are dropped after the current packet, so code after this still runs.
+
+player:getWorld() → World or nil
+live
+The World object this player is in (nil if in none). The same handle callbacks receive, so cw:getName(), cw:spawnItem(), cw:useItemEffect() all work on it.
+
+local cw = player:getWorld()
+if cw then cw:useItemEffect(player:getNetID(), 18, 0, 500) end
+player:sendVariant(variantList [, delay, netID])
+live
+Sends a variant-list packet: the function name then its arguments. delay defaults to -1, netID to this player. Max 16 elements, 4096-byte strings.
+
+player:sendVariant({ "OnEventButtonDataSet", "DailyChallenge", 0, "" })
+World
+The world handed to callbacks is an object, not a string. It stores the world's name and re-resolves on every call, so a stale handle fails cleanly instead of dangling.
+
+world:getName() → string
+live
+The world's name.
+
+world:createNPC(name, x, y) → player or nil
+live
+Spawns a scripted avatar and returns it as a normal player object. x and y are pixels, like player:getPosX().
+
+name
+Shown above the NPC. Up to 30 characters.
+x
+X in pixels. Multiply a tile by 32.
+y
+Y in pixels.
+world:findNPCByName(name) → table
+live
+Every NPC in this world with that exact name. Empty table if none match.
+
+world:removeNPC(npc) → bool
+live
+Despawns an NPC. Returns false if given a real player instead.
+
+world:npcSay(npc, text) → bool
+live
+Talk bubble over an NPC, shown to everyone in the world.
+
+world:renameNPC(npc, name) → bool
+live
+Renames an NPC. Respawns the avatar, since the name is part of the spawn.
+
+world:spawnItem(x, y, itemID, count) → boolean
+live
+Drops an item in the world, scattered the same way a normal drop is. Returns false on an unknown id, a count outside 1 to 200, or coordinates outside the world.
+
+world:spawnItem(tile:getPosX(), tile:getPosY(), 242, 1)
+world:unequipAll(player) → boolean
+live
+Clears all ten clothing slots and redraws. setClothing cannot do this, because it refuses item 0.
+
+world:unequipAll(player)
+world:updateClothing(player) → boolean
+live
+Re-sends a player's appearance to everyone in the world. Call it after changing clothing fields directly.
+
+world:sendPlayerMessage(player, message) → boolean
+live
+Text starting with / runs as that command, with the player's own permissions. Anything else is a console line. Max 4096 bytes.
+
+world:sendPlayerMessage(player, "/sell")        -- runs the /sell command
+world:sendPlayerMessage(player, "`2Welcome!")   -- plain console line
+world:useItemEffect(netID, itemID, secondNetID, delay) → boolean
+live
+Broadcasts the visual of one avatar using an item on another. delay is accepted and ignored.
+
+world:useItemEffect(player:getNetID(), 18, player:getNetID(), 0)
+world:kill(player) → boolean
+live
+Kills (respawns) the player, the same path a spike or lava death uses, then fires onPlayerKillCallback. Used by PVP scripts when a player's HP reaches zero.
+
+if hp[victim:getNetID()] <= 0 then world:kill(victim) end
+world:getEffects() → table or nil
+live
+This world's active effect table, or nil if none is set. See world:setEffects for the fields.
+
+world:setEffects(effects) → boolean
+live
+Sets and saves world effects; they stack with the server's own. All optional: extra_gems, extra_xp, one_hit, break_range, build_range, drops = { id, count, chance }. {} clears.
+
+world:setEffects({
+    extra_gems = 100, extra_xp = 50, one_hit = true,
+    break_range = 2, build_range = 2,
+    drops = {{ id = 242, count = 1, chance = 5 }}
+})
+world:deleteEffects()
+live
+Clears this world's effects.
+
+world:getTiles() → {tile}
+live
+Every tile in the world as an array, in tile coordinates. These tiles carry their world, so they can be written with world:setTileForeground, world:updateTile, and tile:setTileData.
+
+for _, t in ipairs(world:getTiles()) do
+    if t:getTileID() == 0 then
+        world:setTileForeground(t, 242)
+        world:updateTile(t)
+    end
+end
+world:setTileForeground(tile, itemID) → boolean
+live
+Sets the foreground block at the tile's position. The item id and coordinates are validated. Call world:updateTile afterwards to show the change to players.
+
+world:setTileBackground(tile, itemID) → boolean
+live
+Sets the background block at the tile's position, with the same validation as world:setTileForeground. Also needs world:updateTile afterwards to become visible.
+
+for _, t in ipairs(world:getTiles()) do
+    if t:getTileBackground() == 0 then
+        world:setTileBackground(t, 14)
+        world:updateTile(t)
+    end
+end
+world:updateTile(tile) → boolean
+live
+Sends the tile's current block to everyone in the world, making a change from world:setTileForeground or world:setTileBackground visible.
+
+world:getSizeX() → number
+live
+The world's width in tiles, or 0 if the world is no longer loaded.
+
+local w, h = world:getSizeX(), world:getSizeY()
+player:onConsoleMessage("This world is " .. w .. " x " .. h .. " tiles.")
+world:getSizeY() → number
+live
+The world's height in tiles, or 0 if the world is no longer loaded.
+
+world:getGuildID() → number
+live
+The id of the guild this world belongs to, or 0 when it is not a guild world.
+
+world:getOwner() → string
+live
+The world owner's name, or an empty string if there is none.
+
+world:hasAccess(player) → boolean
+live
+True if the player is the world owner, an admin, or on the access list.
+
+world:getDroppedItems() → {drop}
+live
+Every item on the ground. Each has getItemID(), getItemCount(), getUID(), getPosX(), getPosY(). Positions are in PIXELS, so divide by 32 for tile coords.
+
+drop:getPosX()
+The drop's X position in pixels.
+drop:getPosY()
+The drop's Y position in pixels.
+local bx, by = player:getBlockPosX(), player:getBlockPosY()
+for _, d in ipairs(world:getDroppedItems()) do
+    if math.abs(d:getPosX() / 32 - bx) <= 2 and math.abs(d:getPosY() / 32 - by) <= 2 then
+        player:onConsoleMessage("Nearby: " .. d:getItemID() .. " x" .. d:getItemCount())
+    end
+end
+world:removeDroppedItem(uid) → boolean
+live
+Removes a dropped item by its uid (from a drop's getUID) and clears it for everyone in the world.
+
+world:movePlayer(player, x, y) → boolean
+live
+Teleports a player inside their own world without tripping the anticheat. x and y are PIXELS, so multiply a tile by 32.
+
+world:movePlayer(player, tile:getPosX() * 32, tile:getPosY() * 32)
+world:punchTile(tile, player) → boolean
+live
+Punches a tile as if the player hit it by hand, through the real break path, so drops, grow time and onPlayerHarvestCallback all behave normally. Note the order: tile first, player second.
+
+for _, t in ipairs(world:getTiles()) do
+    if t:getTileID() == 242 then world:punchTile(t, player) end
+end
+world:plantFromMagplant(player, tile) → boolean
+live
+Plants from the player's linked Magplant 5000 so it fruits properly, and decrements the stored count. Order is player then tile, the opposite of punchTile.
+
+return false
+Nothing planted. Needs a linked machine with stock, and a tile that is empty, unlocked, inside the world, and solid directly beneath.
+if world:getMagplantStock(player) > 0 then
+    world:plantFromMagplant(player, tile)
+end
+world:getMagplantStock(player) → number
+live
+How many seeds the player's linked Magplant 5000 is holding, or 0 if none is linked.
+
+world:getMagplantSeed(player) → number
+live
+The item id of the seed in the player's linked Magplant 5000, or 0 if none is linked.
+
+Auction
+Listings shown in the in game Auction Search panel. Anything added here appears there. Duration must be 1, 3 or 12 hours, the values the client itself offers.
+
+Auction.list(itemID, priceWL, hours, seller [, world, tx, ty]) → number
+live
+Adds a listing. Returns its index, or nil plus a reason.
+
+itemID
+Item being sold.
+priceWL
+Price in World Locks.
+hours
+1, 3 or 12. Anything else becomes 1.
+seller
+Seller name shown in the panel.
+world
+Optional. World the auction lives in.
+tx, ty
+Optional. Tile position, for block placed auctions.
+Auction.list(242, 5, 3, player:getCleanName(), player:getWorldName())
+Auction.cancel(itemID, seller) → boolean
+live
+Removes that seller's listing for the item.
+
+Auction.all() → table
+live
+Every listing. Fields: id, qty, wl, secs, by, w, tx, ty.
+
+for _, l in ipairs(Auction.all()) do
+    print(l.id .. " for " .. l.wl .. " WL by " .. l.by)
+end
+Auction.count() → number
+live
+How many listings exist.
+
+Auction.refresh(player)
+live
+Pushes a fresh page to that player's open panel.
+
+Auction.markSold(world, x, y) → boolean
+live
+Marks a placed auction block sold. Swaps the tile to the sold out block and delists it.
+
+Auction notes
+live
+No escrow: listing checks the seller owns the item, it does not take it. Add custody yourself alongside bidding. The Auction Block item is placement blocked for now because it crashes clients, so listings come from Lua or the /auction command.
+
+Tile
+A tile from a break or wrench callback is a read-only snapshot, and the block is zeroed right after. A tile from world:getTiles() carries its world and can be written.
+
+tile:getTileID() → number
+live
+The id of what was broken: foreground if there is one, otherwise background.
+
+tile:getTileForeground() → number
+live
+The raw foreground id.
+
+tile:getTileBackground() → number
+live
+The raw background id.
+
+tile:getMountedFish() → number or nil
+live
+The fish mounted on a wall mount, 0 if empty. nil when the tile is not a wall mount.
+
+tile:getMountedWeight() → number or nil
+live
+Weight in lb of the mounted fish. A fish's weight is how many of it you hold.
+
+tile:getMountedName() → string or nil
+live
+The nickname on the plaque, empty when it has not been named.
+
+tile:setMountedFish(id, weight) → bool
+live
+Mounts a fish on a wall mount. id 0 empties it. Applies at once, no world:updateTile needed.
+
+id
+A fish item id, or 0 to empty the plaque.
+weight
+Weight in lb, capped at 200.
+tile:setMountedName(name) → bool
+live
+Names the mounted fish. Up to 30 characters. Fails on an empty plaque.
+
+tile:getVendingItem() → number or nil
+live
+The item a Vending Machine or DigiVend is selling, 0 when the machine is empty. nil when the tile is not a vending machine, so this doubles as the "is this a machine" test.
+
+for _, t in ipairs(world:getTiles()) do
+    local id = t:getVendingItem()
+    if id and id ~= 0 then
+        local price = t:getVendingPrice()
+        local terms = price < 0 and (-price .. " per World Lock") or (price .. " World Locks each")
+        player:onConsoleMessage(getItem(id):getName() .. ": " .. t:getVendingCount() .. " left at " .. terms)
+    end
+end
+tile:getVendingCount() → number or nil
+live
+How many of that item are stocked in the machine.
+
+tile:getVendingPrice() → number or nil
+live
+The price, whose sign is the selling mode. Above 0 it is World Locks per item: the buyer pays that many locks and gets 1. Below 0 it is items per World Lock: the buyer pays 1 lock and gets that many, so -25 means 25 items for a lock. Exactly 0 means not for sale, and the buyer sees "out of order".
+
+tile:getVendingEarnings() → number or nil
+live
+World Locks the machine has taken that the owner has not withdrawn yet. Read only. It is banked player money, so only a real purchase and the owner's Withdraw button may move it.
+
+tile:setVending(id, count, price) → bool
+live
+Stocks a Vending Machine or DigiVend. Applies at once and broadcasts, no world:updateTile needed. count is clamped to the machine's own capacity, 5199 on a Vending Machine and 9999 on a DigiVend. An out of range price is refused outright rather than clamped, because a machine quietly selling at a price you did not ask for is real money. Earnings are never touched. Returns false when the tile is not a vending machine, when id is not a real item, or when the price is out of range.
+
+id
+The item to sell, or 0 to empty the machine, which forces count and price to 0 with it.
+count
+How many to stock. Negative becomes 0, and anything above the machine's capacity is clamped down to it.
+price
+Above 0, World Locks per item, up to 2000000. Below 0, items per World Lock, magnitude up to 200 and never more than count, so there is always at least one lock's worth in there to buy. 0 takes the machine off sale. Anything outside that is refused and nothing is written.
+onPlayerCommandCallback(function(world, player, cmd)
+    if cmd ~= "/shop" then return false end
+
+    local t = world:getTile(player:getBlockPosX(), player:getBlockPosY() - 1)
+    if not t or not t:getVendingItem() then
+        player:onConsoleMessage("`4Stand under a vending machine first.")
+        return true
+    end
+
+    -- 500 Dirt at 2 World Locks each
+    if t:setVending(2, 500, 2) then
+        player:onConsoleMessage("`2Machine restocked.")
+    else
+        player:onConsoleMessage("`4That price was refused.")
+    end
+    return true
+end)
+tile:getPosX() → number
+live
+The tile's X, in tile coordinates. Feed it straight to world:spawnItem.
+
+tile:getPosY() → number
+live
+The tile's Y, in tile coordinates.
+
+tile:getTileData(index) → number or nil
+live
+Reads a tile's growth data from a world:getTiles() tile. index 0 is the fruit count and only trees carry it. index 1 is the start timestamp, carried by trees and by providers alike, and both are ready once os.time() minus that value reaches the item's getGrowTime(). Returns nil when the tile is not one of those types, so a dirt block or a lock never answers with a misleading 0, and nil is a valid "is this a tree" test. A 0 you do get back is a real 0.
+
+index
+0 for the fruit count (trees only), 1 for the planted or provider cycle-start timestamp (trees and providers).
+for _, t in ipairs(world:getTiles()) do
+    local fruit = t:getTileData(0)
+    if fruit and fruit > 0 then
+        player:onConsoleMessage("Tree at " .. t:getPosX() .. "," .. t:getPosY() .. " has " .. fruit .. " fruit.")
+    end
+
+    -- index 1 is shared by trees and providers, so one check covers both
+    local started = t:getTileData(1)
+    if started then
+        local left = started + getItem(t:getTileID()):getGrowTime() - os.time()
+        if left <= 0 then
+            player:onConsoleMessage("`2Ready`` at " .. t:getPosX() .. "," .. t:getPosY())
+        end
+    end
+end
+tile:setTileData(index, value) → boolean
+live
+Writes tile data on a tile from world:getTiles(). index 0 is the fruit count, clamped to 0..255 and accepted by trees only. index 1 is the planted or provider cycle-start timestamp, accepted by trees and providers. Gated exactly like tile:getTileData, so what you can read back is what you can write. Returns false on a read-only snapshot tile from a break or wrench callback, and on any tile whose type does not carry that value: a Giving Tree, for instance, keeps a future deadline in the same field and would be broken by a write meant for a tree.
+
+tile:setTileDataInt(index, value) → boolean
+live
+The same as tile:setTileData. Both names are accepted.
+
+Item
+Obtained from getItem(id).
+
+item:getName() → string
+live
+The item's name.
+
+item:getRarity() → number
+live
+The item's rarity.
+
+item:getID() → number
+live
+The item's id.
+
+item:getDescription() → string
+live
+The item's description. Never empty: items with none read "This item has no description."
+
+item:getMachineCap() → number
+live
+How many items a magplant (item sucker) holds. Returns 0 for anything that is not a machine.
+
+5638
+MAGPLANT 5000, default 5,000
+9850
+MAGPLANT (15K), default 15,000
+10266
+Magplant (100K), default 100,000
+5930
+Legendary MAGPLANT 5000, default 500,000
+21220
+Mythical MAGPLANT 5000, default 3,000,000
+item:setMachineCap(value) → number or nil
+live
+Sets a magplant's capacity. Returns the value applied, or nil if this item has no capacity of its own.
+
+local mag = getItem(5638)
+local applied = mag:setMachineCap(10000)
+if applied then print("cap is now " .. applied) end
+item:getFarmability() → boolean
+live
+Whether the item is farmable (a tree/seed product).
+
+item:getGrowTime() → number
+live
+Grow time in seconds for a seed/tree, or 0.
+
+item:getMinFruitDropCount() → number
+live
+Lowest fruit a farmable tree yields (1 for farmable, else 0). The engine keeps no per-item min/max, so this reports the shared tree-growth range.
+
+item:getMaxFruitDropCount() → number
+live
+Highest fruit a farmable tree yields: 5, or 1 for rarity-999 items, else 0. Mirrors the engine's tree-growth formula.
+
+item:getInfo() → {string}
+live
+The item's notable property lines as an array (wrenchable, multi-facing, untradeable, no-self, never-drops-seeds). Empty if none apply.
+
+for _, line in ipairs(getItem(id):getInfo()) do
+    print(line)
+end
+item:getActionType() → number
+live
+The item's action type, the number that decides how the item behaves when used or placed (for example 64 is the clothing and consumable class). 0 if unset.
+
+item:isBlacklisted() → boolean
+live
+Whether the item carries the No-/Buy flag. Pairs with onBlacklistAccessCallback when you want to check a single item rather than gate a whole command.
+
+InventoryItem
+Returned by getInventoryItems(), getBackpackItems() and getExtraBackpack().
+
+invItem:getItemID() → number
+live
+The item id in this slot.
+
+invItem:getItemCount() → number
+live
+How many are in this slot.
+
+PlayerAutofarm
+Returned by player:getAutofarm().
+
+autofarm:getSlots() → number
+live
+The player's current autofarm slot count.
+
+autofarm:setSlots(n) → boolean
+live
+Sets the slot count. Returns false if out of range.
+
+autofarm:getTargetBlockID() → number
+live
+The block id the autofarm is targeting. 0 when none is set.
+
+autofarm:setTargetBlockID(itemID) → boolean
+live
+Sets the block the autofarm targets. Does not switch autofarm on by itself.
+
+local af = player:getAutofarm()
+if af then af:setTargetBlockID(242) end
