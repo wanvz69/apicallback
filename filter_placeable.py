@@ -38,6 +38,7 @@ NON_PLACEABLE_PATTERNS = (
     r"\bbackpack\b",
     r"\bweapon\b",
     r"\bpet\b",
+    r"\bnull_item\b",
 )
 
 def normalize_name(name):
