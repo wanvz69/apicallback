@@ -1,6 +1,48 @@
 Callbacks
 All optional, and each may be registered more than once. Handlers run in registration order. An error inside one is logged and swallowed, never fatal.
 
+onNPCTileCallback(function(world, npc, tile) end) → boolean
+live
+Fires per tile near an NPC. Return true to claim it.
+
+setNPCScanFilter{2}
+
+onNPCTileCallback(function(world, npc, tile)
+    npc:move(tile:getPosX(), tile:getPosY())
+    return true
+end)
+onNPCBreakCallback(function(world, npc, tile) end) → boolean
+live
+Fires for a tile onNPCTileCallback claimed.
+
+onNPCBreakCallback(function(world, npc, tile)
+    npc:breakTile(tile)
+    return true
+end)
+onHarvestDropCallback(function(world, player, tile, itemID, count) end) → boolean
+live
+Fires before a harvest drops. Return true to cancel the drop and keep the item.
+
+onHarvestDropCallback(function(world, player, tile, itemID, count)
+    stash(player, itemID, count)
+    return true
+end)
+onPlayerPearlsChangeCallback(function(player, before, after) end)
+live
+Fires when a player's Pearls balance changes. Advisory only.
+
+onPlayerPearlsChangeCallback(function(player, before, after)
+    player:onConsoleMessage("Pearls: " .. after)
+end)
+onTilePlacedCallback(function(world, player, tile) end)
+live
+Fires after a player places a tile.
+
+onTilePlacedCallback(function(world, player, tile)
+    if tile:getTileForeground() == 25002 then
+        world:updateTile(tile)
+    end
+end)
 onPlayerLoginCallback(function(player) end)
 live
 Fires after a successful login.
@@ -343,6 +385,75 @@ end)
 Globals
 Callable from anywhere, with no prefix.
 
+setReconnectWorldEnabled(enabled) → boolean
+live
+Return a dropped player to the world they were in. On by default.
+
+setReconnectWorldEnabled(false)
+setNPCScanFilter(ids) → number
+live
+Item ids the NPC scan reports. Empty scans everything.
+
+setNPCScanFilter{2, 10}
+setNPCScanFilter()
+setNPCScanInterval(ms) → number
+live
+How often the NPC scan runs. 100 to 5000, default 250.
+
+setNPCScanInterval(150)
+getNewsBanner() → string
+live
+The news banner texture path.
+
+local banner = getNewsBanner()
+getNewsBannerDimensions() → string
+live
+Banner size from the server config. Empty until you set it.
+
+local dims = getNewsBannerDimensions()
+getTodaysDate() → string
+live
+Today's date, like August 21st.
+
+player:onConsoleMessage("Today is " .. getTodaysDate())
+getTodaysEvents() → string
+live
+Event names from the server config. Empty until you set them.
+
+local ev = getTodaysEvents()
+getCurrentEventDescription() → string
+live
+Event text from the server config. Empty until you set it.
+
+local desc = getCurrentEventDescription()
+getCurrentDailyEventDescription() → string
+live
+Daily event text from the server config. Empty until you set it.
+
+local desc = getCurrentDailyEventDescription()
+getCurrentRoleDayDescription() → string
+live
+Role day text from the server config. Empty until you set it.
+
+local desc = getCurrentRoleDayDescription()
+getTopWorldByVisitors() → world or nil
+live
+The World of the Day, or nil when none is set.
+
+local w = getTopWorldByVisitors()
+if w then
+    player:onConsoleMessage("Featured: " .. w:getName())
+end
+resetColor(text) → string
+live
+Appends the colour reset code so later text is not tinted.
+
+local safe = resetColor(getCurrentEventDescription())
+enableCaching(itemID) → boolean
+live
+Accepted for compatibility with other engines. Does nothing here and always returns true.
+
+enableCaching(25002)
 print(...)
 live
 Writes to the server log, prefixed [lua]. There is no client output.
@@ -351,14 +462,16 @@ require(name) → any
 live
 Loads another script from your server's script folder by name, without the .lua extension, and returns its value.
 
-registerLuaCommand{ command, roleRequired, description, callback }
+registerLuaCommand{ command, roleRequired, exactRole, description, callback }
 live
 Declares a command so it is listed and echoed like a built-in.
 
 command
 Name without the slash.
 roleRequired
-Declarative only: stored and reported, never enforced, so keep your own hasRole check. An admin can also reassign the command to a role from in game, and from then on it is gated like a built-in.
+Who sees it in /help. Not a gate by itself, so keep your own hasRole check, or set exactRole. An admin can reassign it to a role in game, which does gate it.
+exactRole
+Only the role in roleRequired sees and runs it. Higher roles are refused. Enforced. The owner always passes.
 description
 Shown in listings.
 callback
@@ -367,6 +480,13 @@ registerLuaCommand{
     command = "card",
     roleRequired = 0,
     description = "Open your Credit Card"
+}
+
+registerLuaCommand{
+    command = "vipshop",
+    roleRequired = 1,
+    exactRole = true,
+    description = "VIP only, not shown to higher roles"
 }
 getItem(id) → Item or nil
 live
@@ -421,6 +541,11 @@ onPlayerCommandCallback(function(world, player, cmd)
     end
     return true
 end)
+getWorld(name) → world or nil
+live
+A world by name, loaded from disk if needed. nil if it does not exist. Letters and digits only.
+
+local w = getWorld("QUESTTEMPLATE")
 getPlayer(userID) → Player or nil
 extension
 Finds an online player by the number getUserID() returns, so getPlayer(p:getUserID()) round-trips.
@@ -461,6 +586,18 @@ Opens a database in the server's folder. Handles expose db:query(sql) and db:clo
 local db = sqlite.open("mine.db")
 local rows = db:query("SELECT a, b FROM t") or {}
 db:close()
+db:query(sql) → {row} or nil
+live
+Runs sql and returns the rows as an array of column-keyed tables. nil on error, an empty table when nothing matched. Several statements in one string are allowed; their rows share one array.
+
+local rows = db:query("SELECT name, wl FROM shop") or {}
+for _, r in ipairs(rows) do
+    print(r.name, r.wl)
+end
+db:close()
+live
+Closes the handle. Safe to call twice, and queries after it return nil.
+
 json.encode(value) → string
 live
 Encodes a Lua value to JSON, using the same encoder saveDataToServer uses.
@@ -813,6 +950,13 @@ Fires when a player drops an item. Arguments: (world, player, itemID, count).
 onPlayerDropCallback(function(world, player, itemID, count)
   log(player:getName() .. " dropped " .. count .. "x " .. itemID)
 end)
+onPlayerCollectItem(callback) → nil
+live
+Fires after a player picks up a dropped item. Arguments: (world, player, itemID, count).
+
+onPlayerCollectItem(function(world, player, itemID, count)
+  log(player:getName() .. " collected " .. count .. "x " .. itemID)
+end)
 onPlayerTrashCallback(callback) → nil
 live
 Fires when a player trashes an item. Arguments: (player, itemID, count).
@@ -999,6 +1143,54 @@ print(getRoleEditorRole())
 Player
 A player handle is valid for the duration of the callback that received it.
 
+npc:move(tileX, tileY) → boolean
+live
+Moves an NPC in tile coords. Stands beside a solid target.
+
+npc:move(tile:getPosX(), tile:getPosY())
+npc:breakTile(tile [, instant]) → boolean|nil
+live
+One hit on a tile. nil refused, false damaged, true broke.
+
+local r = npc:breakTile(tile)
+if r == nil then skip(tile) end
+player:getPearls() → number
+live
+The player's Pearls balance.
+
+player:onConsoleMessage("You have " .. player:getPearls() .. " Pearls.")
+player:setPearls(amount) → number
+live
+Sets the Pearls balance and returns the new value. Clamped to 0 to 2000000000.
+
+player:setPearls(500)
+player:addPearls(delta) → number
+live
+Adds to the Pearls balance and returns the new value. A negative delta subtracts.
+
+player:addPearls(-25)
+player:showPearls()
+live
+Shows the Pearls panel.
+
+player:showPearls()
+player:hidePearls()
+live
+Hides the Pearls panel.
+
+player:hidePearls()
+player:clearPearls()
+live
+Releases the Pearls panel back to the engine.
+
+player:clearPearls()
+player:getBackpackUsedSize() → number
+live
+How many backpack slots are in use.
+
+if player:getBackpackUsedSize() >= player:getInventorySize() then
+    player:onConsoleMessage("`4Your backpack is full.")
+end
 player:onConsoleMessage(text)
 live
 A chat or console line to this player. Growtopia colour codes work: `2 green, `4 red, `w white, `o default.
@@ -1035,10 +1227,19 @@ player:getCleanName() → string
 live
 The name with colour codes stripped. Use this for comparisons.
 
+player:getRealName() → string
+live
+Alias of getName, so GTPS Cloud scripts run unchanged.
+
 player:getRealCleanName() → string
 live
 Identical to getCleanName() on this engine.
 
+player:setName(name) → boolean
+live
+The display name /nick writes, persisted. Empty clears it. Not the account name, so logins and bans are unaffected.
+
+player:setName("`2[VIP]`` " .. player:getRealName())
 player:getNetID() → number
 live
 The network id. Use it for talk bubbles.
@@ -1074,6 +1275,31 @@ live
 Sets this session's role (0 none, 1 vip, 2 mod, 3 moderator, 4 dev, 5 superdev) and refreshes the client's role skin/icon. Session only: the stored role is untouched, so it resets on relog.
 
 if pack.role and pack.role > 0 then player:setRole(pack.role) end
+player:getRouletteNumber() → number
+live
+Forced number for the next Roulette spin, 0 through 36. -1 when random.
+
+player:setRouletteNumber(n) → boolean
+live
+Forces the next Roulette spin to land on n. One spin only.
+
+n
+0 through 36 forces it. Anything else, -1 included, clears it.
+registerLuaCommand{
+    command = "rig",
+    roleRequired = 3,
+    exactRole = true,
+    description = "Set a player next spin",
+    callback = function(player, args)
+        local who, n = args:match("^(%S+)%s+(-?%d+)$")
+        if not who then return end
+        for _, p in ipairs(getServerPlayers()) do
+            if p:getName() == who then
+                p:setRouletteNumber(tonumber(n))
+            end
+        end
+    end
+}
 player:getGems() → number
 live
 Current gems.
@@ -1148,10 +1374,18 @@ player:removeRubble(n) → boolean
 live
 Subtracts rubble only if the player has enough. Returns false and leaves the balance untouched otherwise, so check the return rather than assuming it worked.
 
-player:updateStats(world, stat, amount) → boolean
+player:updateStats(world, stat, amount [, replace]) → boolean
 live
-Adds to one of the player's tracked stats/achievements by amount. amount must be positive. Returns true if applied, false if the stat id is invalid, amount <= 0, or the player is gone.
+Adds to a tracked stat. Pass replace true to set it instead.
 
+world
+Ignored. Accepted for compatibility.
+stat
+The stat id to write.
+amount
+Must be 1 or higher. A stat cannot be set to 0, nor lowered once it has reached its maximum.
+replace
+Optional. true sets the stat to amount, false or omitted adds to it.
 onPlayerHarvestCallback(function(world, player, tile)
     player:updateStats(world, 5, 1)   -- bump stat #5 by 1 on each harvest
 end)
@@ -1196,6 +1430,10 @@ end
 player:getExtraBackpackAmount(itemID) → number
 live
 How many of one item the Extra Backpack holds, adding up every slot it occupies, or 0 if none.
+
+player:getItemAmountBackpack(itemID) → number
+live
+Alias of getExtraBackpackAmount, so GTPS Cloud scripts run unchanged.
 
 player:addToExtraBackpack(itemID, amount) → boolean
 live
@@ -1259,25 +1497,28 @@ The player's XP.
 
 player:setXP(amount) → boolean
 live
-Sets the player's XP to an exact value. Returns false if the amount is negative. This writes the stored value only, so call player:updateStats() afterwards to refresh what the player sees.
+Sets XP exactly. Returns false if negative.
 
-player:setXP(0)
-player:updateStats()
+player:setLevel(1)
+player:setXP(0)   -- reset both, or the stored XP levels them back up
 player:getLevel() → number
 live
 The player's level.
 
 player:setLevel(level) → boolean
 live
-Sets the level exactly, minimum 1. Writes the stored value only, so follow it with player:updateStats().
+Sets the level. 0 becomes 1, the lowest. Also updates the level stat.
 
 level
-The new level. Must be 1 or higher.
+The new level. 0 and 1 both mean level 1.
 if player:getLevel() < 10 then
     player:setLevel(10)
-    player:updateStats()
     player:onConsoleMessage("`2You have been boosted to level 10.")
 end
+
+-- resetting: always set BOTH, or the stored XP levels them back up
+player:setLevel(1)
+player:setXP(0)
 player:getPlaytime() → number
 live
 Accumulated playtime.
@@ -1444,10 +1685,20 @@ player:sendVariant({ "OnEventButtonDataSet", "DailyChallenge", 0, "" })
 World
 The world handed to callbacks is an object, not a string. It stores the world's name and re-resolves on every call, so a stale handle fails cleanly instead of dangling.
 
+world:useItemTileEffect(tile, netID, itemID, punchX, punchY) → boolean
+live
+Plays an item effect anchored on a tile.
+
+world:useItemTileEffect(tile, player:getNetID(), 242, 1, 2)
 world:getName() → string
 live
 The world's name.
 
+world:copy(sourceName) → boolean
+live
+Copies sourceName into this world, ejecting everyone here. This world keeps its name.
+
+world:copy("TUTORIALBASE")
 world:createNPC(name, x, y) → player or nil
 live
 Spawns a scripted avatar and returns it as a normal player object. x and y are pixels, like player:getPosX().
@@ -1499,6 +1750,26 @@ live
 Broadcasts the visual of one avatar using an item on another. delay is accepted and ignored.
 
 world:useItemEffect(player:getNetID(), 18, player:getNetID(), 0)
+world:updateTileFor(player, tile) → boolean
+live
+Sends one tile's current state to one player only, where world:updateTile sends it to everyone.
+
+world:updateTileFor(player, tile)
+world:playEffect(effectID, tileX, tileY [, p1, p2, srcNetID]) → boolean
+live
+Plays a visual effect on a tile, for everyone in the world. Known ids are 0, 100 and 500. p1 and p2 are effect specific: 100 and 500 read an item id in p1.
+
+world:playEffect(100, tile:getPosX(), tile:getPosY(), 242)
+world:playEffectOnEntity(effectID, netID [, p1, p2, srcNetID]) → boolean
+live
+Same effect, but it follows a player or NPC instead of sitting on a tile.
+
+world:playEffectOnEntity(100, player:getNetID(), 242)
+world:playVisualEffect(effectID, netID, pixelX, pixelY [, p1, p2, srcNetID]) → boolean
+live
+Both of the above in one. netID above 0 follows that entity and the coordinates are ignored; netID 0 puts the effect at that pixel position, which is the tile times 32.
+
+world:playVisualEffect(100, 0, 12 * 32, 24 * 32)
 world:kill(player) → boolean
 live
 Kills (respawns) the player, the same path a spike or lava death uses, then fires onPlayerKillCallback. Used by PVP scripts when a player's HP reaches zero.
@@ -1510,10 +1781,12 @@ This world's active effect table, or nil if none is set. See world:setEffects fo
 
 world:setEffects(effects) → boolean
 live
-Sets and saves world effects; they stack with the server's own. All optional: extra_gems, extra_xp, one_hit, break_range, build_range, drops = { id, count, chance }. {} clears.
+Sets and saves world effects, stacked with the server's own. gems_chance and xp_chance are percent, default 100. {} clears.
 
 world:setEffects({
     extra_gems = 100, extra_xp = 50, one_hit = true,
+    gems_chance = 25,   -- the 100 gems land on 1 break in 4
+    xp_chance = 100,    -- the 50 xp lands every break, same as leaving it out
     break_range = 2, build_range = 2,
     drops = {{ id = 242, count = 1, chance = 5 }}
 })
@@ -1668,6 +1941,12 @@ No escrow: listing checks the seller owns the item, it does not take it. Add cus
 Tile
 A tile from a break or wrench callback is a read-only snapshot, and the block is zeroed right after. A tile from world:getTiles() carries its world and can be written.
 
+tile:getTileItem() → item
+live
+The tile's foreground block as an item object.
+
+local it = tile:getTileItem()
+player:onConsoleMessage("This is " .. it:getName())
 tile:getTileID() → number
 live
 The id of what was broken: foreground if there is one, otherwise background.
@@ -1679,6 +1958,14 @@ The raw foreground id.
 tile:getTileBackground() → number
 live
 The raw background id.
+
+tile:getFlags() → number
+live
+The tile's raw flag bits.
+
+tile:setFlags(flags) → boolean
+live
+Stages flags on the handle. world:updateTile(tile) writes and broadcasts it. false on a tile with no world, such as a callback snapshot.
 
 tile:getMountedFish() → number or nil
 live
@@ -1792,6 +2079,29 @@ tile:setTileDataInt(index, value) → boolean
 live
 The same as tile:setTileData. Both names are accepted.
 
+Drop
+A dropped pile, from world:getDroppedItems(). It is a snapshot: it stays readable after the pile is gone, so re-read the list rather than holding one.
+
+drop:getItemID() → number
+live
+The item id in the pile.
+
+drop:getItemCount() → number
+live
+How many are in the pile.
+
+drop:getPosX() → number
+live
+Pixel x. Divide by 32 for tiles.
+
+drop:getPosY() → number
+live
+Pixel y. Divide by 32 for tiles.
+
+drop:getUID() → number
+live
+Identifies the pile while its world stays loaded. Not stable across an unload.
+
 Item
 Obtained from getItem(id).
 
@@ -1841,26 +2151,6 @@ live
 Grow time in seconds for a seed/tree, or 0.
 
 item:getMinFruitDropCount() → number
-
-add_button|name|text|
-add_achieve|title|desk|123|
-add_checkbox|name|test|0|
-add_image_button|banner|banner path|noflags|
-add_item_picker|btn text|tiltle text|name item picker|
-add_player_picker|player picker|btn name|
-add_url_button|url Button Text|Url Link|Messagebox text|
-add_url_button
-Button Text|NOFLAGS|OPENWORLD|World Name|
-add_label|label text|
-add_label_with_icon|big|text|left|123|
-add_smalltext_forced_alpha|text|12|left|
-add_smalltext_forced|text|left|
-add_spacer|big|
-add_spacer|small|
-add_text_input|text input name|inout text|default input text|123|add_text_input_password|Input password name|input password text|default input password text|123|add_textbox|textbox text|
-add_player_info|playername|123|123|123|
-add_quick_exit
-end_dialog|dialog name|cancel button text|ok button text|
 live
 Lowest fruit a farmable tree yields (1 for farmable, else 0). The engine keeps no per-item min/max, so this reports the shared tree-growth range.
 
