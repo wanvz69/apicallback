@@ -2205,3 +2205,23 @@ Sets the block the autofarm targets. Does not switch autofarm on by itself.
 
 local af = player:getAutofarm()
 if af then af:setTargetBlockID(242) end
+
+add_button|name|text|
+add_achieve|title|desk|123|
+add_checkbox|name|test|0|
+add_image_button|banner|banner path|noflags|
+add_item_picker|btn text|tiltle text|name item picker|
+add_player_picker|player picker|btn name|
+add_url_button|url Button Text|Url Link|Messagebox text|
+add_url_button
+Button Text|NOFLAGS|OPENWORLD|World Name|
+add_label|label text|
+add_label_with_icon|big|text|left|123|
+add_smalltext_forced_alpha|text|12|left|
+add_smalltext_forced|text|left|
+add_spacer|big|
+add_spacer|small|
+add_text_input|text input name|inout text|default input text|123|add_text_input_password|Input password name|input password text|default input password text|123|add_textbox|textbox text|
+add_player_info|playername|123|123|123|
+add_quick_exit
+end_dialog|dialog name|cancel button text|ok button text|
